@@ -1,0 +1,259 @@
+library(tidyverse) #for summarizing data 
+library(ggsci) #for colo palletes
+library(ggpubr) #for theme pubr
+library(dplyr)
+library(ggsci)
+library(ggplot2)
+
+
+#finding missing values in data
+accidents.dataf <- Road_Crashes_for_five_Years_._Victoria
+
+#filter rows that contain incomplete years 2014 and 2019
+accidents.data <- filter(accidents.dataf, !grepl('2014|2019', ACCIDENT_DATE))
+
+#Replace missing values in DAY_OF_WEEK
+#convert to date format
+accidents.data$ACCIDENT_DATE <- as.Date(accidents.data$ACCIDENT_DATE, "%m/%d/%Y")
+
+#fill in missing weekdays usind date
+for(i in 1:nrow(accidents.data)){
+  accidents.data$DAY_OF_WEEK[i] <- weekdays(as.Date(accidents.data$ACCIDENT_DATE[i]))
+}
+
+#impute 'not known' instances from variable HIT_RUN_FLAG
+#accidents.data1 <- accidents.data[!(accidents.data$HIT_RUN_FLAG == "Not known"),]
+
+#create new column for years
+accidents.data2 <- accidents.data %>%
+  mutate(ACCIDENT_YEAR = format(accidents.data$ACCIDENT_DATE, format = "%Y"))
+
+#create new column for month
+accidents.data3 <- accidents.data2 %>%
+  mutate(ACCIDENT_MONTH = months(accidents.data2$ACCIDENT_DATE, abbreviate = TRUE))
+
+#removing NAs which are not meaningful 
+clean.accidents.data <- na.omit(accidents.data3)
+
+
+#--------------------------------VISUALIZATION--------------------------------------
+
+#Q:Is there a relationship between hit/run and fatalities between years 2015-2018?
+#Q: Was Hit/Run offenses one of the leading causes for increases in accidents in 2016?
+#H:The majority of hi/runs involve fatalities
+hitrunFatal_plot <- clean.accidents.data %>%
+  filter(HIT_RUN_FLAG == "Yes") %>%
+  group_by(ACCIDENT_YEAR, HIT_RUN_FLAG) %>%
+  #summarise(mnA = mean(FATALITY)) %>%
+  summarise(mnA = sum(FATALITY)) %>%
+  ggplot(aes(reorder(ACCIDENT_YEAR, mnA),mnA, fill = reorder(HIT_RUN_FLAG, mnA)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title = "Historical Data of Fatalities Resulting from Hit-Run Offenses",
+       subtitle = "Victoria, AUS 2015-2018", x = "Year", y = "Number of Fatalities", 
+       fill = "Hit-Run Offense")+
+  geom_text(mapping = aes(label = mnA), position = position_dodge(width = 0.9), cex=2.5, vjust=4)+
+  theme_pubclean() + scale_fill_aaas()
+hitrunFatal_plot
+
+#Q:Are there specific months where fatalities or serious injuries increase?
+#H:Months that include holidays such as christmas, mothers day, independece day etc. have the most fatalities or serious injuries.
+#Visual of years and months
+
+monthInjorfatal_plot <- clean.accidents.data %>%
+  group_by(ACCIDENT_YEAR, ACCIDENT_MONTH) %>%
+  summarise(sIOF = sum(INJ_OR_FATAL)) %>%
+  ggplot(aes(reorder(ACCIDENT_YEAR, sIOF),sIOF, fill = reorder(ACCIDENT_MONTH, sIOF)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title="Historical Data of Injuries or Fatalities by Year", 
+       subtitle = "Victoria, AUS 2015-2018", x = "Year", y = "Number of Injusries or Fatalities", 
+       fill = "Month")+
+  geom_text(mapping = aes(label = sIOF), position = position_dodge(width = 0.9), cex=2.5, vjust=4)+
+  scale_fill_rickandmorty()
+monthInjorfatal_plot
+
+#Break down of months by years
+#Facet wrap
+
+yearmonthInjorFatal_plot <- clean.accidents.data %>%
+  group_by(ACCIDENT_YEAR, ACCIDENT_MONTH) %>%
+  summarise(sIOF = sum(INJ_OR_FATAL)) %>%
+  ggplot(aes(reorder(ACCIDENT_YEAR, sIOF),sIOF, fill = reorder(ACCIDENT_MONTH, sIOF)))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(title="Historical Data of Injuries or Fatalities by Month", 
+       subtitle = "Victoria, AUS 2015-2018", x = "Year", y = "Number of Injusries or Fatalities", 
+       fill = "Month")+
+  geom_text(mapping = aes(label = sIOF), position = position_dodge(width = 0.9), cex=2.5, vjust=4)+
+  scale_fill_rickandmorty()+
+  facet_wrap(ACCIDENT_MONTH~.)
+yearmonthInjorFatal_plot
+
+#Break down of days by the months with the highest inj or fatalities
+#for year with highest number of inj or fatalities
+#only affected month by a holidy could be month of May (refer to holidays)
+
+dayMonthYearInjorFata_plot <- clean.accidents.data %>%
+  group_by(ACCIDENT_DATE, ACCIDENT_MONTH, ACCIDENT_YEAR) %>%
+  summarise(sIOF = sum(INJ_OR_FATAL)) %>%
+  filter(ACCIDENT_YEAR == "2016"  & ACCIDENT_MONTH %in% c("Feb", "May", "Jul")) %>%
+  ggplot(aes(x=ACCIDENT_DATE, y=sIOF, color = ACCIDENT_MONTH))+
+  geom_bar(stat = "identity", position = "dodge", show.legend = FALSE)+
+  scale_x_date(date_breaks = "1 day", date_labels = "%d")+
+  labs(title="Daily Number of Injuries or Fatalities by Month", 
+       subtitle = "Victoria, AUS 2016", x = "Day", y = "Number of Injusries or Fatalities")+
+  theme_pubclean() +
+  facet_wrap(~ACCIDENT_MONTH, scales = "free_x", ncol = 1)
+dayMonthYearInjorFata_plot
+
+#Speed hypothesis
+#Finding inconsistent values for speed column
+inconsitent.values <-sum(clean.accidents.data$SPEED_ZONE=="Not known"|clean.accidents.data$SPEED_ZONE=="Camping grounds or off road"|clean.accidents.data$SPEED_ZONE=="Other speed limit")
+inconsitent.values
+# finding median for speed
+median.speed <- median(clean.accidents.data$SPEED_ZONE,inconsitent.values.rm=T)
+median.speed
+#Replacing inconsistent values with median
+clean.accidents.data$SPEED_ZONE[clean.accidents.data$SPEED_ZONE=="Not known"]<- median.speed
+clean.accidents.data$SPEED_ZONE[clean.accidents.data$SPEED_ZONE=="Camping grounds or off road"]<- median.speed
+clean.accidents.data$SPEED_ZONE[clean.accidents.data$SPEED_ZONE=="Other speed limit"]<- median.speed
+#Finding empty values in RMA
+miss.RMA<-sum(clean.accidents.data$RMA=="")
+#Finding mode for RMA
+library(modeest)
+freq.rma<-mfv(clean.accidents.data$RMA,miss.RMA.rm=T)
+#Replacing missing values of RMA
+clean.accidents.data$RMA[clean.accidents.data$RMA==""]<-freq.rma
+#Creating substring for removing KM/Hr
+clean.accidents.data$speedstring <- substr(clean.accidents.data$SPEED_ZONE,1,3)
+clean.accidents.data$speedstring
+clean.accidents.data$speedstring1 <- as.double(clean.accidents.data$speedstring)
+is.na(clean.accidents.data$speedstring1)
+sum(is.na(clean.accidents.data$speedstring1))
+median.speedstring1 <- median(clean.accidents.data$speedstring1,na.rm=T)
+median.speedstring1
+clean.accidents.data$speedstring1[is.na(clean.accidents.data$speedstring1)]<- median.speedstring1
+sum(is.na(clean.accidents.data$speedstring1))
+
+#Aggregation for speed zone and RMA
+speedRMAagg <- aggregate(clean.accidents.data$speedstring1,by=list(clean.accidents.data$RMA),FUN=median)
+speedRMAagg
+#Filter for year 2015 for speed
+year1fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,speedstring1) %>%filter(ACCIDENT_YEAR == "2015")
+
+#Filter for year 2016 for speed
+year2fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,speedstring) %>%filter(ACCIDENT_YEAR == "2016")
+
+#Filter for Year 2017
+year3fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,speedstring) %>%filter(ACCIDENT_YEAR == "2017")
+
+#filter for year 2018
+year4fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,speedstring) %>%filter(ACCIDENT_YEAR == "2018")
+
+#Creating barplot for year 2015
+year1.table <- table(year1fil)
+year1.table
+label.cyl1 <-c("40","50","60","70","75","80","90","100","110")
+
+barplot(year1.table, names.arg = label.cyl1, main = "accidents vs speedzone for 2015",col = rainbow(1), ylim = c(0,10000), xlab = "Speed zone",ylab="Number of accidents")
+#Creating barplot for year 2016
+year2.table <- table(year2fil)
+year2.table
+label.cyl <-c("100","110","30","40","50","60","70","75","80","90")
+#label.cyl <-c("30k")
+barplot(year2.table, names.arg = label.cyl, main = "accidents vs speedzone for 2016",col = c("blue"), ylim = c(0,10000), xlab = "Speed zone",ylab="Number of accidents")
+#Creating barplot for year 2017
+year3.table <- table(year3fil)
+year3.table
+label.cyl <-c("100","110","30","40","50","60","70","75","80","90")
+barplot(year3.table, names.arg = label.cyl, main = "accidents vs speedzone for 2017",col = c("green"), ylim = c(0,10000), xlab = "Speed zone",ylab="Number of accidents")
+#Creating barplot for year 2018
+year4.table <- table(year4fil)
+year4.table
+label.cyl <-c("100","110","30","40","50","60","70","75","80","90")
+
+barplot(year4.table, names.arg = label.cyl, main = "accidents vs speedzone for 2018",col = c("yellow"), ylim = c(0,10000), xlab = "Speed zone",ylab="Number of accidents")
+#Filter for year 2015 for RMA
+yearRMA1fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,RMA) %>%filter(ACCIDENT_YEAR == "2015")
+
+#Filter for year 2016 for RMA
+yearRMA2fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,RMA) %>%filter(ACCIDENT_YEAR == "2016")
+
+#Filter for year 2017 for RMA
+yearRMA3fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,RMA) %>%filter(ACCIDENT_YEAR == "2017")
+
+#Filter for year 2018 for RMA
+yearRMA4fil <- clean.accidents.data %>%select(ACCIDENT_YEAR,RMA) %>%filter(ACCIDENT_YEAR == "2018")
+
+#Creating barplot for year 2015 for RMA
+year1.table.RMA <- table(yearRMA1fil)
+year1.table.RMA
+
+
+label.RMA <-c("ArterialHighway" ,"Arterial Other ","Freeway Road","LocalRoad","Non Arterial Road")
+
+barplot(year1.table.RMA, names.arg = label.RMA, main = "accidents vs Road Type",col = rainbow(4), ylim = c(0,10000), xlab = "Road Type",ylab="Numberof accidents")
+#Creating barplot for year 2016 for RMA
+year2.table.RMA <- table(yearRMA2fil)
+year2.table.RMA
+label.RMA <-c("ArterialHighway" ,"Arterial Other ","Freeway Road","LocalRoad","Non Arterial Road")
+
+barplot(year2.table.RMA, names.arg = label.RMA, main = "accidents vs Road Type",col = c("pink"), ylim = c(0,10000), xlab = "Road Type",ylab="Number of accidents")
+#Creating barplot for year 2017 for RMA
+year3.table.RMA <- table(yearRMA1fil)
+year3.table.RMA
+
+
+label.RMA <-c("ArterialHighway" ,"Arterial Other ","Freeway Road","LocalRoad","Non Arterial Road")
+
+barplot(year3.table.RMA, names.arg = label.RMA, main = "accidents vs Road Type",col = c("Violet"), ylim = c(0,10000), xlab = "Road Type",ylab="Number of accidents")
+#Creating barplot for year 2018 for RMA
+year4.table.RMA <- table(yearRMA1fil)
+year4.table.RMA
+
+label.RMA <-c("ArterialHighway" ,"Arterial Other ","Freeway Road","LocalRoad","Non Arterial Road")
+
+barplot(year4.table.RMA, names.arg = label.RMA, main = "accidents vs Road Type",col = c("orange"), ylim = c(0,10000), xlab = "Road Type",ylab="Number accidents")
+#Grouping speed and year by sum of fatal and injury
+yearspeedFatal1fil <- clean.accidents.data%>%group_by(ACCIDENT_YEAR,speedstring1) %>%summarise(sum.injury=sum(INJ_OR_FATAL))
+yearspeedFatal1fil
+final.injury1 <-filter(yearspeedFatal1fil,ACCIDENT_YEAR=="2015")
+#Creating ggsidebysideplot foreach  year  for speed for injury
+
+agg.fatal.speed <- aggregate(clean.accidents.data$INJ_OR_FATAL,by=list(clean.accidents.data$speedstring1),sum)
+agg.fatal.speed
+final.injury1 <-filter(yearspeedFatal1fil,ACCIDENT_YEAR=="2015")
+final.injury1
+
+ggplot(yearspeedFatal1fil , aes(yearspeedFatal1fil$speedstring1,yearspeedFatal1fil$ACCIDENT_YEAR,sum.injury)) +
+  geom_bar(stat = "identity")
+ggplot(yearspeedFatal1fil, aes(yearspeedFatal1fil$speedstring1, sum.injury,
+                               fill = yearspeedFatal1fil$ACCIDENT_YEAR )) +
+  geom_bar(stat = "identity", position = position_dodge())+scale_x_continuous(breaks=seq(40, 110, by = 10))+labs(title = "Number of fatal or injury vs speed", x = "Speed", y= "Number of Injuries or Fatalities",fill="Accident Year" )
+#Creating ggsidebysideplot foreach  year  for RMA for injury
+yearspeedFatal2fil <- clean.accidents.data%>%group_by(ACCIDENT_YEAR,RMA) %>%summarise(sum.injury=sum(INJ_OR_FATAL))
+yearspeedFatal2fil
+ggplot(yearspeedFatal2fil, aes(yearspeedFatal2fil$RMA, sum.injury,
+                               fill = yearspeedFatal2fil$ACCIDENT_YEAR)) +
+  geom_bar(stat = "identity", position = position_dodge())+labs(title = "Number of fatal or injury vs RoadType", x = "Road Type", y= "Number of Injuries or Fatalities",fill="Accident Year")
+
+
+
+final.injury2 <-filter(yearspeedFatal1fil,ACCIDENT_YEAR=="2016")
+final.injury2
+
+#-------------------------------------------------------------------------
+## GGPlot for Injuries or Fatalities by Region Name and Year 
+
+clean.data.agg <- aggregate(clean.accidents.data$INJ_OR_FATAL, by= list(clean.accidents.data$LIGHT_CONDITION, clean.accidents.data$REGION_NAME, clean.accidents.data$ACCIDENT_YEAR), FUN = length)
+
+regionplot <- ggplot(clean.data.agg, aes(x, Group.2, fill= Group.3)) + geom_bar(stat = "identity", position = position_dodge()) + labs(title = "Number of Injuries or Fatalities of Region Name by Year", x = "Region Name", y= "Number of Injuries or Fatalities", fill= "Year") + theme_pubclean()+ 
+  
+  facet_wrap(~Group.3) 
+
+##GGPlot for Injuries or Fatalities by Light Condition and Year 
+
+lightconplot <- ggplot(clean.data.agg, aes(x, Group.1,  
+                                           
+                                           fill = Group.3)) + geom_bar(stat = "identity", position = position_dodge())+ labs(title = "Number of Injuries or Fatalies of Light Condition by Year", x = "Number of Injuries or Fatalities", y ="Light Condition", fill ="Year") + theme_pubclean() + facet_wrap(~Group.3) 
+
+lightconplot
+
